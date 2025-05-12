@@ -11,7 +11,7 @@ def get_args():
     parser.add_argument('--wandb_api', type=str, default="", help="Your wandb api")
     parser.add_argument('--only_load_model', action='store_true', default=False,
                         help='only load model to continue training')
-    parser.add_argument('--snapshot', type=str, default="", help='snapshot')
+    parser.add_argument('--snapshot', type=str, default="/home/dke/jhlee/DTG/results/hnavsnapshot-new.pth.tar", help='snapshot')
     parser.add_argument('--evaluation_freq', type=int, default=5, help="evaluation frequency")
     parser.add_argument('--train_time_steps', type=int, default=32, help="time steps for training")
     parser.add_argument('--training_type', type=int, default=1, help="0: 100 epochs; 1: 30 epochs")
@@ -19,17 +19,17 @@ def get_args():
 
     # data args:
     parser.add_argument('--data_root', type=str, help='root of the dataset', default="data_sample")
-    parser.add_argument('--batch_size', type=int, default=2, help="the negative number in the same frame")
-    parser.add_argument('--workers', type=int, default=16, help="the worker number in the dataloader")
+    parser.add_argument('--batch_size', type=int, default=16, help="the negative number in the same frame")
+    parser.add_argument('--workers', type=int, default=8, help="the worker number in the dataloader")
 
     # model args:
     parser.add_argument('--generator_type', type=int, default=0, help="0: diffusion; 1: cvae")
     parser.add_argument('--diffusion_model', type=int, default=0, help="0: rnn; 1: unet")
     parser.add_argument('--crnn_type', type=int, default=0, help="0: gru; 1: lstm")
     parser.add_argument('--train_poses', action='store_true', default=False, help="if train poses or increments")
-    parser.add_argument('--use_traversability', action='store_true', default=False, help="if train traversability")
+    parser.add_argument('--use_traversability', action='store_true', default=True, help="if train traversability")
     parser.add_argument('--traversable_steps', type=int, default=10, help="time steps used for traversability training")
-    parser.add_argument('--diffusion_time_steps', type=int, default=100, help="")
+    parser.add_argument('--diffusion_time_steps', type=int, default=50, help="")
 
     # GPUs
     parser.add_argument('--channels-last', action='store_true', default=False, help='Use channels_last memory layout')

@@ -24,15 +24,15 @@ class Loss(nn.Module):
 
         # with open(join(cfg.root, "data.pkl"), "rb") as input_file:
         #     data = pickle.load(input_file)
-        # self.network = data[DataDict.network]
+        #     self.network = data[DataDict.network]
 
         self.generator_type = cfg.generator_type
+        # print(f"generator_type: {self.generator_type}")
         self.use_traversability = cfg.use_traversability
         self.collision_distance = 0.5
 
         self.target_dis = nn.MSELoss(reduction="mean")
         self.distance = HausdorffLoss(mode=cfg.distance_type)
-
         self.train_poses = cfg.train_poses
         self.distance_type = cfg.distance_type
         self.scale_waypoints = cfg.scale_waypoints
@@ -43,10 +43,10 @@ class Loss(nn.Module):
 
         self.map_resolution = cfg.map_resolution
         self.map_range = cfg.map_range
-        self.output_dir = cfg.output_dir
+        self.output_dir = cfg.lossoutput_dir
         if self.output_dir:
             if not exists(self.output_dir):
-                os.makedirs(self.output_dir)
+                os.makedirs(self.output_dir, exist_ok=True)
 
     def _cropped_distance(self, path, single_map):
         N, Cp = path.shape
@@ -130,21 +130,52 @@ class Loss(nn.Module):
             traversability_hat_poses = y_hat_poses[int(B / 2):]
             y_hat_poses = y_hat_poses[:int(B / 2)]
 
+        # 기존 손실 계산 (거리 기반 손실 L_d)
         path_dis = self.distance(ygt, y_hat_poses).mean()
         last_pose_dis = self.target_dis(ygt[:, -1, :], y_hat_poses[:, -1, :])
-        all_loss = self.distance_ratio * path_dis + self.last_ratio * last_pose_dis
+        distance_loss = self.distance_ratio * path_dis + self.last_ratio * last_pose_dis
+        
         output.update({
             LossNames.last_dis: last_pose_dis,
             LossNames.path_dis: path_dis,
         })
 
+        # Traversability 손실 계산 (L_t)
+        traversability_loss_mean = torch.tensor(0.0, device=y_hat.device)
+        
         if self.use_traversability:
             local_map = input_dict[DataDict.local_map]
             traversability_loss, traversability_values = self._local_collision(yhat=traversability_hat_poses, local_map=local_map)
             traversability_loss_mean = traversability_loss.to(float).mean()
-            all_loss += self.traversability_ratio * traversability_loss_mean
             output.update({LossNames.traversability: traversability_loss_mean})
+        
+        # Path Risk Score를 가져와 손실 가중치 β 계산
+        beta = torch.tensor(0.0, device=y_hat.device)
+        
+        if "path_risk_score" in input_dict:
+            path_risk = input_dict["path_risk_score"]
 
+            if isinstance(path_risk, np.ndarray) or isinstance(path_risk, list):
+                path_risk = torch.tensor(path_risk, dtype=torch.float32)
+
+            if not isinstance(path_risk, torch.Tensor):
+                path_risk = torch.tensor(path_risk, dtype=torch.float32)
+
+            path_risk = path_risk.to(y_hat.device)
+            
+            # 시그모이드 함수를 사용한 β 계산 (0과 1 사이의 값)
+            # 부드럽고 비선형적인 가중치 조정을 위해 시그모이드 함수 사용
+            # 논문 방식: β = σ(P_risk)
+            beta = torch.sigmoid(path_risk)
+            
+            # 로깅을 위해 path_risk 값 저장
+            output.update({LossNames.path_risk: path_risk})
+        
+        # 적응적 가중치를 이용한 최종 손실 계산
+        # L = (1 - β) * L_d + β * L_t
+        traversability_term = self.traversability_ratio * traversability_loss_mean
+        all_loss = (1 - beta) * distance_loss + beta * traversability_term
+        
         output.update({LossNames.loss: all_loss})
         return output
 
@@ -161,7 +192,8 @@ class Loss(nn.Module):
         return write_png(local_map=local_map, center=np.array([local_map.shape[0] / 2, local_map.shape[1] / 2]),
                          file=join(self.output_dir, "local_map_trajectory_{}.png".format(indices + idx)),
                          paths=[self.convert_path_pixel(trajectory=trajectory)],
-                         others=self.convert_path_pixel(trajectory=gt_path))
+                         others=self.convert_path_pixel(trajectory=gt_path)
+                         )
 
     @torch.no_grad()
     def evaluate(self, input_dict, indices=0):
@@ -177,15 +209,15 @@ class Loss(nn.Module):
             local_map = input_dict[DataDict.local_map]
             for idx in range(len(y_hat_poses)):
                 self.show_path_local_map(trajectory=y_hat_poses[idx].detach().cpu().numpy(),
-                                         gt_path=ygt[idx].detach().cpu().numpy(),
-                                         local_map=local_map[idx].detach().cpu().numpy(), idx=idx, indices=indices)
+                                        gt_path=ygt[idx].detach().cpu().numpy(),
+                                        local_map=local_map[idx].detach().cpu().numpy(), idx=idx, indices=indices)
                 if self.train_poses:
-                    all_trajectories = [t_hat[idx] * self.scale_waypoints for t_hat in all_trajectories]
+                    temp_all_trajectories = [t_hat[idx] * self.scale_waypoints for t_hat in all_trajectories]
                 else:
-                    all_trajectories = [np.cumsum(t_hat[idx], axis=0) * self.scale_waypoints for t_hat in all_trajectories]
-                for t_idx in range(len(all_trajectories)):
-                    self.show_path_local_map(trajectory=all_trajectories[t_idx], gt_path=ygt[idx].detach().cpu().numpy(),
-                                             local_map=local_map[idx].detach().cpu().numpy(), idx=t_idx, indices=indices)
+                    temp_all_trajectories = [np.cumsum(t_hat[idx], axis=0) * self.scale_waypoints for t_hat in all_trajectories]
+                for t_idx in range(len(temp_all_trajectories)):
+                    self.show_path_local_map(trajectory=temp_all_trajectories[t_idx], gt_path=ygt[idx].detach().cpu().numpy(),
+                                            local_map=local_map[idx].detach().cpu().numpy(), idx=t_idx, indices=indices)
 
             path_dis = self.distance(ygt, y_hat_poses).mean()
             last_pose_dis = self.target_dis(ygt[:, -1, :], y_hat_poses[:, -1, :])
@@ -195,13 +227,53 @@ class Loss(nn.Module):
             }
 
             if self.use_traversability:
-                local_map = input_dict[DataDict.local_map]
-                traversability_loss = self._local_collision(yhat=y_hat_poses, local_map=local_map)
+                # 기존 traversability 손실 계산
+                traversability_loss, traversability_values = self._local_collision(yhat=y_hat_poses, local_map=local_map)
                 traversability_loss_mean = traversability_loss.mean()
                 output.update({LossNames.evaluate_traversability: traversability_loss_mean})
+                
+                # ✅ Distance ratio 계산 (논문 수식 기반)
+                # hr(τ̂) = 1 - |ht - hc|/(2|τ̂|)
+                
+                # 로봇의 현재 위치 가져오기 (DataDict.pose 활용)
+                if DataDict.pose in input_dict:
+                    # 로봇의 현재 위치를 pose 정보에서 추출
+                    # pose 데이터의 형식에 따라 적절히 변환 필요
+                    robot_pose = input_dict[DataDict.pose]
+                    # 일반적으로 pose는 변환 행렬이므로 위치 부분(x, y)만 추출
+                    robot_pos = robot_pose[:, :2].to(y_hat_poses.device)
+                else:
+                    # pose 정보가 없는 경우 기본값 사용 (원점)
+                    robot_pos = torch.zeros((y_hat_poses.shape[0], 2), device=y_hat_poses.device)
+                
+                # 목표 위치 가져오기 (DataDict.target 활용)
+                if DataDict.target in input_dict:
+                    goal_pos = input_dict[DataDict.target].to(y_hat_poses.device)
+                else:
+                    goal_pos = ygt[:, -1].to(y_hat_poses.device)
+                
+                # 궤적 길이 계산 (|τ̂|)
+                diffs = y_hat_poses[:, 1:] - y_hat_poses[:, :-1]
+                segment_lengths = torch.norm(diffs, dim=2)
+                trajectory_lengths = torch.sum(segment_lengths, dim=1)  # [B]
+                
+                # 로봇 위치에서 목표까지의 직선 거리 (hc)
+                hc = torch.norm(goal_pos - robot_pos, dim=1)  # [B]
+                
+                # 궤적의 마지막 지점에서 목표까지의 직선 거리 (ht)
+                last_waypoint = y_hat_poses[:, -1]  # [B, 2]
+                ht = torch.norm(goal_pos - last_waypoint, dim=1)  # [B]
+                
+                # 거리 비율 계산
+                distance_ratio = 1.0 - torch.abs(ht - hc) / (2.0 * trajectory_lengths + 1e-6)
+                output.update({"evaluate_distance_ratio": distance_ratio.mean()})
+                
+                # ✅ Traversability 점수 계산 (논문 수식 기반)
+                traversability_score = traversability_values.mean()
+                output.update({"evaluate_traversability_score": traversability_score})
+                
             return output
-
-
+        
 def write_png(local_map=None, rgb_local_map=None, center=None, targets=None, paths=None, paths_color=None, path=None,
               crop_edge=None, others=None, file=None):
     dis = 2

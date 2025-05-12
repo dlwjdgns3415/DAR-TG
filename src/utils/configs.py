@@ -65,10 +65,15 @@ class DatasetType:
     train = "train"
 
 
-
 class GeneratorType:
     diffusion = 0
     cvae = 1
+
+
+# DDIM과 DDPM 스케줄러 타입을 구분하기 위한 클래스 추가
+class SchedulerType:
+    ddpm = "ddpm"
+    ddim = "ddim"
 
 
 Lidar_cfg = edict()
@@ -79,7 +84,7 @@ Lidar_cfg.angle_range = 200
 
 DatasetConfig = edict()  # Configuration of data loaders
 DatasetConfig.name = ""
-DatasetConfig.root = ""
+DatasetConfig.root = "/home/dke/jhlee/DTG/data_sample"
 DatasetConfig.batch_size = 16
 DatasetConfig.num_workers = 8
 DatasetConfig.shuffle = False
@@ -135,13 +140,16 @@ CRNN.type = CRNNType.gru
 CRNN.waypoint_num = 16
 
 Diffusion = edict()
+# 기본 설정
 Diffusion.beta_start = 0.0001
 Diffusion.beta_end = 0.02
 Diffusion.beta_schedule = "squaredcos_cap_v2"
 Diffusion.clip_sample = True  # default clip range = 1
 Diffusion.clip_sample_range = 1.0  # default clip range = 1
-Diffusion.num_train_timesteps = 100
+Diffusion.num_train_timesteps = 100  # 학습 시 timestep 수
 Diffusion.variance_type = "fixed_small"
+
+# 모델 설정
 Diffusion.perception_in = Perception.lidar_out + Perception.vel_out + 2
 Diffusion.diffusion_zd = 512
 Diffusion.waypoint_dim = 2
@@ -158,12 +166,19 @@ Diffusion.traversable_steps = 10
 Diffusion.traversable_steps_buffer = 5
 Diffusion.n_groups = 8
 Diffusion.model_type = DiffusionModelType.crnn
-Diffusion.use_all_paths = False
+Diffusion.use_all_paths = True
 Diffusion.sample_times = -1
 Diffusion.crnn = CRNN
+Diffusion.use_adaptive_steps = True
+
+# DDIM 관련 설정
+Diffusion.scheduler_type = SchedulerType.ddim  # DDIM 스케줄러 사용 설정 (ddpm 또는 ddim)
+Diffusion.inference_steps = 50  # DDIM 샘플링 시 사용할 스텝 수 (일반적으로 DDPM보다 훨씬 작은 값 사용)
+Diffusion.eta = 0.0  # DDIM에서 stochastic sampling 조절 (0: deterministic, 1: fully stochastic like DDPM)
+Diffusion.use_clipped_model_output = True  # 모델 출력을 clipping할지 여부
 
 ModelConfig = edict()
-ModelConfig.generator_type = GeneratorType.cvae
+ModelConfig.generator_type = GeneratorType.diffusion  # CVAE에서 Diffusion으로 변경
 ModelConfig.cvae = CVAE
 ModelConfig.diffusion = Diffusion
 ModelConfig.perception = Perception
@@ -185,6 +200,7 @@ class LossNames:
     traversability = "traversability"
     est_tra_rec = "est_tra_rec"
     est_tra_kld = "est_tra_kld"
+    path_risk = "path_risk"
 
     evaluate_last_dis = "evaluate_last_dis"
     evaluate_path_dis = "evaluate_path_dis"
@@ -210,7 +226,7 @@ LossConfig.root = "/home/jing/Documents/gn/database/datasets/regular_data"
 LossConfig.map_resolution = 0.1
 LossConfig.map_range = 300
 LossConfig.image_separate = 20
-LossConfig.output_dir = None
+LossConfig.lossoutput_dir = "/home/dke/jhlee/DTG/results"
 
 
 #########################################################################
@@ -232,11 +248,11 @@ class LogTypes:
 
 
 TrainingConfig = edict()
-TrainingConfig.name = ""
+TrainingConfig.name = "ddim_training"  # 이름 변경하여 DDIM 모델임을 표시
 TrainingConfig.wandb_api = ""
 TrainingConfig.only_model = False
 TrainingConfig.output_dir = "./results"
-TrainingConfig.snapshot = "./pretrained.pth.tar"
+TrainingConfig.snapshot = ""
 TrainingConfig.max_epoch = 150
 TrainingConfig.evaluation_freq = 5
 TrainingConfig.train_time_steps = 32
@@ -251,10 +267,10 @@ TrainingConfig.traversability_threshold = 1e-7
 
 TrainingConfig.gpus = edict()
 TrainingConfig.gpus.channels_last = False
-TrainingConfig.gpus.local_rank = 1
+TrainingConfig.gpus.local_rank = 0
 TrainingConfig.gpus.sync_bn = False
 TrainingConfig.gpus.no_ddp_bb = False
-TrainingConfig.gpus.device = "cuda:0"
+TrainingConfig.gpus.device = "cuda"
 
 TrainingConfig.data = DatasetConfig
 TrainingConfig.model = ModelConfig

@@ -78,4 +78,5 @@ def evaluation_data_loader(cfg):
         a dataloader in pytorch format
     """
     cfgs = copy.deepcopy(cfg)
-    return get_data_loader(cfg=cfgs, train=False)
+    dataloader = get_data_loader(cfg=cfgs, train=False)
+    return dataloader
