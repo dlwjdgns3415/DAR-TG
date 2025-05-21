@@ -196,7 +196,7 @@ class Loss(nn.Module):
                          )
 
     @torch.no_grad()
-    def evaluate(self, input_dict, indices=0):
+    def evaluate(self, input_dict, data_dict=None, indices=0):
         ygt = input_dict[DataDict.path]
         y_hat = input_dict[DataDict.prediction]
         if self.train_poses:
@@ -227,7 +227,8 @@ class Loss(nn.Module):
             }
 
             if self.use_traversability:
-                # 기존 traversability 손실 계산
+                # 기존 traversability 손실 
+                local_map = input_dict[DataDict.local_map]
                 traversability_loss, traversability_values = self._local_collision(yhat=y_hat_poses, local_map=local_map)
                 traversability_loss_mean = traversability_loss.mean()
                 output.update({LossNames.evaluate_traversability: traversability_loss_mean})
@@ -235,22 +236,28 @@ class Loss(nn.Module):
                 # ✅ Distance ratio 계산 (논문 수식 기반)
                 # hr(τ̂) = 1 - |ht - hc|/(2|τ̂|)
                 
-                # 로봇의 현재 위치 가져오기 (DataDict.pose 활용)
-                if DataDict.pose in input_dict:
+                # 로봇의 현재 위치와 목표 위치 가져오기는 data_dict에서 수행
+                if data_dict is not None and DataDict.pose in data_dict:
                     # 로봇의 현재 위치를 pose 정보에서 추출
-                    # pose 데이터의 형식에 따라 적절히 변환 필요
-                    robot_pose = input_dict[DataDict.pose]
-                    # 일반적으로 pose는 변환 행렬이므로 위치 부분(x, y)만 추출
-                    robot_pos = robot_pose[:, :2].to(y_hat_poses.device)
+                    robot_pose = data_dict[DataDict.pose]
+                    # 변환 행렬에서 위치 부분(x, y)만 추출 - 마지막 열(인덱스 3)의 첫 두 행(인덱스 0,1)
+                    robot_pos = robot_pose[:, :2, 3].to(y_hat_poses.device)  # 결과 shape: [batch_size, 2]
                 else:
                     # pose 정보가 없는 경우 기본값 사용 (원점)
                     robot_pos = torch.zeros((y_hat_poses.shape[0], 2), device=y_hat_poses.device)
                 
-                # 목표 위치 가져오기 (DataDict.target 활용)
-                if DataDict.target in input_dict:
-                    goal_pos = input_dict[DataDict.target].to(y_hat_poses.device)
+                # 목표 위치 가져오기
+                if data_dict is not None and DataDict.target in data_dict:
+                    # targets 형식: [coordinate_array, distance_value]
+                    targets_data = data_dict[DataDict.target]
+                    if isinstance(targets_data, list) and len(targets_data) > 0:
+                        # 첫 번째 타겟에서 x, y 좌표만 추출
+                        target_coord = targets_data[0][0][:2]  # 첫 번째 항목의 첫 번째 요소(좌표 배열)에서 x, y 좌표
+                        goal_pos = torch.tensor([target_coord], device=y_hat_poses.device)
+                    else:
+                        goal_pos = ygt[:, -1, :2].to(y_hat_poses.device)
                 else:
-                    goal_pos = ygt[:, -1].to(y_hat_poses.device)
+                    goal_pos = ygt[:, -1, :2].to(y_hat_poses.device)
                 
                 # 궤적 길이 계산 (|τ̂|)
                 diffs = y_hat_poses[:, 1:] - y_hat_poses[:, :-1]
@@ -261,14 +268,14 @@ class Loss(nn.Module):
                 hc = torch.norm(goal_pos - robot_pos, dim=1)  # [B]
                 
                 # 궤적의 마지막 지점에서 목표까지의 직선 거리 (ht)
-                last_waypoint = y_hat_poses[:, -1]  # [B, 2]
+                last_waypoint = y_hat_poses[:, -1, :2]  # [B, 2]
                 ht = torch.norm(goal_pos - last_waypoint, dim=1)  # [B]
                 
                 # 거리 비율 계산
                 distance_ratio = 1.0 - torch.abs(ht - hc) / (2.0 * trajectory_lengths + 1e-6)
                 output.update({"evaluate_distance_ratio": distance_ratio.mean()})
                 
-                # ✅ Traversability 점수 계산 (논문 수식 기반)
+                # Traversability 점수 계산
                 traversability_score = traversability_values.mean()
                 output.update({"evaluate_traversability_score": traversability_score})
                 

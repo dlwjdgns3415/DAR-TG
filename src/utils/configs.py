@@ -89,7 +89,7 @@ DatasetConfig.batch_size = 16
 DatasetConfig.num_workers = 8
 DatasetConfig.shuffle = False
 DatasetConfig.distributed = False
-DatasetConfig.training_data_percentage = 0.95
+DatasetConfig.training_data_percentage = 0.9
 
 DatasetConfig.lidar_cfg = Lidar_cfg
 DatasetConfig.vel_num = 10

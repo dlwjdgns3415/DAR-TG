@@ -208,7 +208,7 @@ class Trainer:
     def load_learning_parameters(self, state_dict):
         # Load other attributes
         if 'epoch' in state_dict:
-            self.epoch = state_dict['epoch'] + 1
+            self.epoch = state_dict['epoch']
             print('Epoch has been loaded: {}.'.format(self.epoch))
         if 'iteration' in state_dict:
             self.iteration = state_dict['iteration']
@@ -370,7 +370,7 @@ class Trainer:
                 output_dict = initial_output
             
             # 평가 메트릭 계산
-            eval_dict = self.loss_func.evaluate(output_dict)
+            eval_dict = self.loss_func.evaluate(output_dict, data_dict=data_dict)
             output_dict.update(eval_dict)
         
         return output_dict
@@ -432,7 +432,7 @@ class Trainer:
             self.save_snapshot('{}/models/{}_{}.pth'.format(self.output_dir, self.name, self.epoch))
 
     def inference_epoch(self):
-        # if (self.evaluation_freq > 0) and (self.epoch % self.evaluation_freq == 0) and (self.epoch != 0):    
+        if (self.evaluation_freq > 0) and (self.epoch % self.evaluation_freq == 0) and (self.epoch != 0):    
         # if (self.evaluation_freq > 0) and (self.epoch % self.evaluation_freq == 0):
             for iteration, data_dict in enumerate(tqdm(self.evaluation_data_loader,
                                                        desc="Evaluation Losses Epoch {}".format(self.epoch))):
@@ -451,8 +451,8 @@ class Trainer:
         run the training process
         """
         torch.autograd.set_detect_anomaly(True)
-        self.set_eval_mode()
-        self.inference_epoch()
+        #self.set_eval_mode()
+        #self.inference_epoch()
         for self.epoch in range(self.epoch, self.max_epoch, 1):
             self.set_eval_mode()
             self.inference_epoch()
@@ -687,12 +687,6 @@ class Trainer:
         
         # 최종 Path Risk Score
         P_risk = density_values.mean().item()
-        
-        # diffusion 모델의 traversability 사용 시 원래 배치 크기로 예측 복원
-        if original_pred_batch_size is not None and use_traversability:
-            # output_dict에 원래 배치 크기로 조절된 값 포함 (필요시)
-            # output_dict[DataDict.prediction] = output_dict[DataDict.prediction][:original_pred_batch_size]
-            pass
         
         if return_grid_maps:
             return P_risk, lidar_grid_maps
