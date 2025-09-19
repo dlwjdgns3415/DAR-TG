@@ -79,12 +79,12 @@ Lidar_cfg.angle_range = 200
 
 DatasetConfig = edict()  # Configuration of data loaders
 DatasetConfig.name = ""
-DatasetConfig.root = ""
-DatasetConfig.batch_size = 16
-DatasetConfig.num_workers = 8
+DatasetConfig.root = "/home/aah18155qt/DTG/data_sample"
+DatasetConfig.batch_size = 256
+DatasetConfig.num_workers = 16
 DatasetConfig.shuffle = False
 DatasetConfig.distributed = False
-DatasetConfig.training_data_percentage = 0.95
+DatasetConfig.training_data_percentage = 0.8
 
 DatasetConfig.lidar_cfg = Lidar_cfg
 DatasetConfig.vel_num = 10
@@ -102,6 +102,7 @@ class RNNType:
 class DiffusionModelType:
     unet = "unet"
     crnn = "crnn"
+    lightm_unet = "lightm_unet"
 
 
 class CRNNType:
@@ -158,9 +159,16 @@ Diffusion.traversable_steps = 10
 Diffusion.traversable_steps_buffer = 5
 Diffusion.n_groups = 8
 Diffusion.model_type = DiffusionModelType.crnn
-Diffusion.use_all_paths = False
+Diffusion.use_all_paths = True
 Diffusion.sample_times = -1
 Diffusion.crnn = CRNN
+
+Diffusion.mamba_d_state = 16
+Diffusion.mamba_expand = 2
+Diffusion.cond_predict_scale = False
+Diffusion.output_threshold = None
+Diffusion.film_mode = "none"
+Diffusion.use_mamba = None
 
 ModelConfig = edict()
 ModelConfig.generator_type = GeneratorType.cvae
@@ -185,7 +193,7 @@ class LossNames:
     traversability = "traversability"
     est_tra_rec = "est_tra_rec"
     est_tra_kld = "est_tra_kld"
-
+    
     evaluate_last_dis = "evaluate_last_dis"
     evaluate_path_dis = "evaluate_path_dis"
     evaluate_traversability = "evaluate_traversability"
@@ -205,12 +213,12 @@ LossConfig.vae_kld_ratio = 1.0
 LossConfig.traversability_ratio = 10.0
 LossConfig.generator_type = ModelConfig.generator_type
 LossConfig.traversability_estimation_reconstruct_ratio = 10.0
-LossConfig.root = "/home/jing/Documents/gn/database/datasets/regular_data"
+LossConfig.root = "/home/aah18155qt/DTG/data_sample/"
 
 LossConfig.map_resolution = 0.1
 LossConfig.map_range = 300
 LossConfig.image_separate = 20
-LossConfig.output_dir = None
+LossConfig.lossoutput_dir = "/home/aah18155qt/DTG-Lunet/results/images"
 
 
 #########################################################################
@@ -236,7 +244,7 @@ TrainingConfig.name = ""
 TrainingConfig.wandb_api = ""
 TrainingConfig.only_model = False
 TrainingConfig.output_dir = "./results"
-TrainingConfig.snapshot = "./pretrained.pth.tar"
+TrainingConfig.snapshot = ""
 TrainingConfig.max_epoch = 150
 TrainingConfig.evaluation_freq = 5
 TrainingConfig.train_time_steps = 32
@@ -251,10 +259,10 @@ TrainingConfig.traversability_threshold = 1e-7
 
 TrainingConfig.gpus = edict()
 TrainingConfig.gpus.channels_last = False
-TrainingConfig.gpus.local_rank = 1
+TrainingConfig.gpus.local_rank = 0
 TrainingConfig.gpus.sync_bn = False
 TrainingConfig.gpus.no_ddp_bb = False
-TrainingConfig.gpus.device = "cuda:0"
+TrainingConfig.gpus.device = "cuda"
 
 TrainingConfig.data = DatasetConfig
 TrainingConfig.model = ModelConfig

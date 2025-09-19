@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
+from src.models.backbones.lightm_unet import ConditionalLightMUNet1D
 from src.models.backbones.rnn import RNNDiffusion
 from src.models.backbones.unet import ConditionalUnet1D
 from src.utils.configs import DataDict, DiffusionModelType
@@ -49,6 +50,21 @@ class Diffusion(nn.Module):
                                                 diffusion_step_embed_dim=cfg.diffusion_step_embed_dim,
                                                 down_dims=cfg.down_dims, kernel_size=cfg.kernel_size,
                                                 cond_predict_scale=cfg.cond_predict_scale, n_groups=cfg.n_groups)
+        elif self.model_type == DiffusionModelType.lightm_unet:
+            self.diff_model = ConditionalLightMUNet1D(
+                input_dim=self.waypoint_dim,
+                global_cond_dim=self.zd,
+                diffusion_step_embed_dim=cfg.diffusion_step_embed_dim,
+                down_dims=cfg.down_dims,
+                kernel_size=cfg.kernel_size,
+                n_groups=cfg.n_groups,
+                mamba_d_state=cfg.mamba_d_state,
+                mamba_expand=cfg.mamba_expand,
+                cond_predict_scale=cfg.cond_predict_scale,
+                output_threshold=cfg.output_threshold,
+                film_mode=cfg.film_mode,
+                use_mamba=cfg.use_mamba,
+            )
         else:
             raise Exception("the diffusion model type is not defined")
 
@@ -108,6 +124,12 @@ class Diffusion(nn.Module):
         all_trajectories = []
         scheduler = self.noise_scheduler
         scheduler.set_timesteps(self.time_steps)
+        scheduler.timesteps = scheduler.timesteps.to(h_condition.device)
+
+        sampling_info = {
+            "used_steps": self.time_steps,
+            "waypoints_num": self.waypoints_num,
+        }
         for t in scheduler.timesteps:
             if (self.sample_times >= 0) and (t < self.time_steps - 1 - self.sample_times):
                 break
@@ -116,9 +138,10 @@ class Diffusion(nn.Module):
                                            global_cond=h_condition)
             trajectory = scheduler.step(model_output, t, trajectory, generator=None).prev_sample.contiguous()
             if self.use_all_paths:
-                all_trajectories.append(model_output.clone().detach().cpu().numpy())
+                all_trajectories.append(trajectory.clone().detach().cpu().numpy())
         output = {
             DataDict.prediction: trajectory,
             DataDict.all_trajectories: all_trajectories,
+            "sampling_info": sampling_info
         }
         return output
